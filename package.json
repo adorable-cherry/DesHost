@@ -1,0 +1,23 @@
+{
+  "name": "desmos-offline",
+  "version": "1.0.0",
+  "description": "",
+  "main": "calculator.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "echo 'No build required' && exit 0",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "diff": "^8.0.2",
+    "dotenv": "^17.0.1",
+    "express": "^5.1.0",
+    "express-react-views": "^0.11.0",
+    "fs": "^0.0.1-security",
+    "react": "^16.14.0",
+    "react-dom": "^16.14.0"
+  }
+}

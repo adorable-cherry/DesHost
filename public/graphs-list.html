@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Graph Collection</title>
+  <style>
+    .graph-card {
+      border: 1px solid #ccc;
+      padding: 10px;
+      width: 300px;
+      margin: 10px;
+    }
+    #graph-container {
+      display: flex;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Graph Collection</h1>
+  <div id="graph-container"></div>
+  <button id="load-more">See More</button>
+
+  <script>
+    let start0 = 0;
+    let allGraphs = [];
+    let total=0;
+
+    async function loadGraphs(start) {
+      const response = await fetch('/api/graphs?start='+start);
+      console.log("Heya");
+      ress = await response.json();
+      if(ress.success){
+        allGraphs=allGraphs.concat(ress.data);
+        start0=ress.pagination.nextStart;
+        total=ress.pagination.totalGraphs;
+        if(start0==null){
+          document.getElementById('load-more').hidden=true;
+        }
+        renderGraphs();
+      }
+    }
+
+    function renderGraphs() {
+      const container = document.getElementById('graph-container');
+      const visibleGraphs = allGraphs;
+      container.innerHTML = visibleGraphs.map(graph => `
+        <div class="graph-card">
+          <a href="/#${graph.hash}" onclick="location.reload()"><h3>${graph.title}</h3></a>
+          <p>Created: ${new Date(graph.created).toLocaleDateString()}</p>
+          <img src="${graph.thumbUrl}" loading="lazy" width="100%">
+        </div>
+      `).join('');
+
+      document.getElementById('load-more').textContent = 
+        `See More (${total-start0} remaining)`;
+    }
+
+    document.getElementById('load-more').addEventListener('click', () => {
+      if(start0!=null){
+        loadGraphs(start0);
+      }
+    });
+
+    // Initial load
+    loadGraphs(start0);
+  </script>
+</body>
+</html>

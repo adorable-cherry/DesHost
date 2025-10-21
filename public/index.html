@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Untitled</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script type="text/javascript" src="calculator.js"></script>
+        <!--<script type="module" src="graphData.js"></script>-->
+    </head>
+    <body style="margin: 0;">
+        
+        <div style="line-height: 46px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input id="file" type="file" accept=".json" style="display: none;"/>
+                <button id="load">Load</button>
+                <button id="save">Save</button>
+                <input id="title" type="text" value="Untitled" style="margin: 0 10px;">
+                <button id="previous-version">Previous Version</button>
+                <button id="diff-version">Graph Diff with Prev Version</button>
+            </div>
+            <a href="/graphs-list" style="margin-left: auto;">View All Graphs</a>
+        </div>
+        <div id="calculator" style="position: absolute; top: 46px; bottom: 0; left: 0; right: 0;"></div>
+        <script>            
+            window.Calc = Desmos.GraphingCalculator(document.querySelector('#calculator'));
+
+            function loadDesmosState(jsonString){
+                var state = JSON.parse(jsonString);
+                window.Calc.setState(state);
+            };
+            
+            document.querySelector('#file').onchange = function(e){
+                let file = e.target.files[0];
+                name = file.name.replace(/\.(json|JSON)$/, '');
+                document.querySelector('#title').value = name;
+                document.querySelector('head>title').text = name;
+                let reader = new FileReader();
+                reader.onload = function(e){
+                    loadDesmosState(e.target.result);
+                };
+                reader.readAsText(file);
+            };
+            
+            document.querySelector('#load').onclick = function(e){
+                document.querySelector('#file').click();
+            };
+            
+            function download(content, fileName, contentType) {
+                let a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([content], {type: contentType}));
+                a.download = fileName;
+                a.click();
+            };
+            
+            document.querySelector('#save').onclick = function(e){
+                let state = JSON.stringify(window.Calc.getState());
+                let title = document.querySelector('#title').value;
+                download(state, title+'.json', 'text/plain');
+            };
+            //
+            function updatePrevButton(stuff){
+                const parentHash = stuff.parent_hash;
+                if(parentHash){
+                    document.getElementById('previous-version').addEventListener('click', function() {
+                        window.location.href = `/?hash=${parentHash}`;
+                    });
+                    document.getElementById('diff-version').addEventListener('click', function() {
+                        window.location.href = `/diff.html?hash1=${parentHash}&hash2=${stuff.hash}`
+                    });
+                }else{
+                    document.getElementById('previous-version').hidden=true;
+                    document.getElementById('diff-version').hidden=true;
+                }
+            }
+            function loadGraph(stuff){
+                loadDesmosState(JSON.stringify(stuff.state));
+                document.querySelector('#title').value = stuff.title;
+                updatePrevButton(stuff);
+            }
+            // Load from hash in URL
+            function loadFromHash() {
+                const hash = window.location.hash.substring(1);
+                if (!hash) return;
+                console.log(hash);
+                fetch(`/api/graph/${hash}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            loadGraph(data.data);
+                        } else {
+                            alert('Graph not found');
+
+                        }
+                    })
+                    .catch(err => console.error('Error loading graph:', err));
+            }
+             // Check for hash on page load
+            window.addEventListener('DOMContentLoaded', () => {
+                hashval=(new URLSearchParams(window.location.search)).get('hash');
+                if (window.location.hash) {
+                    loadFromHash();
+                }else if(hashval){
+                    fetch(`https://www.desmos.com/calculator/${hashval}`, {
+                        headers: {
+                            Accept: "application/json",
+                        },
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        loadGraph(data);
+                    })
+                    .catch(error => {
+                        console.error("Fetch error:", error);
+                    });
+                }else if(hashval==null){
+                    document.getElementById('previous-version').hidden=true
+                }
+            });
+            
+        </script>
+    </body>
+</html>

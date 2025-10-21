@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Graph Diff Viewer</title>
+  <script src="https://unpkg.com/diff@5.1.0/dist/diff.min.js"></script>
+  <script src="/calculator.js"></script>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    .header { 
+      padding: 10px; 
+      background: #f5f5f5;
+      display: flex;
+      justify-content: space-between;
+    }
+    .diff-container { 
+      display: flex; 
+      height: calc(70vh - 160px); /* Reduced height for larger summary */
+    }
+    .calculator { 
+      width: 50%; 
+      height: 100%; 
+      border: 1px solid #ddd;
+    }
+    .diff-summary {
+      padding: 10px;
+      height: 220px;
+      overflow-y: auto;
+      border-top: 1px solid #ddd;
+      background: white;
+    }
+    .diff-item {
+      margin: 5px 0;
+      padding: 5px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 13px;
+    }
+    .removed { background: #ffebee; }
+    .added { background: #e8f5e9; }
+    .changed { background: #fff8e1; }
+    .viewport-change { background: #e3f2fd; }
+    .expression-id {
+      color: #666;
+      font-weight: bold;
+    }
+
+    .diff-table {
+      display: flex;
+      flex-direction: column;
+      font-family: monospace;
+    }
+
+    .diff-row {
+      display: flex;
+      border-bottom: 1px solid #eee;
+    }
+
+    .diff-col {
+      width: 50%;
+      padding: 5px;
+      white-space: pre-wrap;
+      
+      word-wrap: break-word;     /* Ensure long words wrap */
+      overflow-wrap: break-word; /* Modern preferred way */
+      box-sizing: border-box;    /* Prevents overflow due to padding */
+      overflow: hidden;     
+    }
+
+    .diff-col.old {
+      background: #ffebee;
+    }
+
+    .diff-col.new {
+      background: #e8f5e9;
+    }
+
+    .diff-highlight-added {
+      background-color: #b9f6ca;
+    }
+
+    .diff-highlight-removed {
+      background-color: #ff8a80;
+    }
+
+
+
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Graph Comparison Tool</h2>
+    <button id="diff-version">Graph Diff with Prev Version</button>
+    <div>
+      <span style="background: #e8f5e9; padding: 2px 5px;">Added</span>
+      <span style="background: #ffebee; padding: 2px 5px; margin-left: 5px;">Removed</span>
+      <span style="background: #fff8e1; padding: 2px 5px; margin-left: 5px;">Changed</span>
+    </div>
+  </div>
+
+  <div class="diff-container">
+    <div id="calc1" class="calculator"></div>
+    <div id="calc2" class="calculator"></div>
+  </div>
+
+  <div class="diff-summary" id="diff-summary">
+    <h3>Change Summary</h3>
+    <div id="diff-items"></div>
+  </div>
+
+  <div class="diff-row">
+  <div class="diff-col old">[render removed with word highlights]</div>
+  <div class="diff-col new">[render added with word highlights]</div>
+  </div>
+
+  <script>
+    // Get graph hashes from URL
+    const params = new URLSearchParams(window.location.search);
+    const hash1 = params.get('hash1');
+    const hash2 = params.get('hash2');
+
+    if (!hash1 || !hash2) {
+      console.log("hi");
+      fetchGraphState(hash1).then(x=>{
+        console.log(x);
+        if(x['parent_hash']){
+          window.location.href = `/diff.html?hash1=${x['parent_hash']}&hash2=${hash1}`;
+        }
+      })
+      document.getElementById('diff-summary').innerHTML = `
+        <h3>Error</h3>
+        <p>Please either specify both hash1 and hash2 parameters or make sure the one parameter you specified has a parent-graph</p>
+        <p>Example: /diff.html?hash1=abc123&hash2=def456</p>
+      `;
+      throw new Error('Missing hash parameters');
+    }
+
+    // Initialize calculators (with larger viewport)
+    const calc1 = Desmos.GraphingCalculator(document.getElementById('calc1'), {
+      settingsMenu: false,
+      expressionsCollapsed: true,
+      zoomButtons: false
+    });
+    const calc2 = Desmos.GraphingCalculator(document.getElementById('calc2'), {
+      settingsMenu: false,
+      expressionsCollapsed: true,
+      zoomButtons: false
+    });
+
+
+    async function fetchGraphState(hash) {
+          // Try local API first
+          try {
+            const localRes = await fetch(`/api/graph/${hash}`);
+            if (localRes.ok) {
+              const data = await localRes.json();
+              if (data.data) return data.data;
+            }
+          } catch (e) {
+            console.warn(`Local API fetch failed for ${hash}:`, e.message);
+          }
+
+          // Fallback to Desmos.com
+          try {
+            const desmosRes = await fetch(`https://www.desmos.com/calculator/${hash}`, {
+              headers: { 'Accept': 'application/json' }
+            });
+            if (desmosRes.ok) {
+              const data = await desmosRes.json();
+              console.log("Fetched from Desmos:", hash);
+              return data;
+            }
+          } catch (e) {
+            console.warn(`Desmos fetch failed for ${hash}:`, e.message);
+          }
+
+          throw new Error(`Could not fetch graph ${hash} from any source`);
+        }
+
+    function sortedStringify(obj) {
+      return JSON.stringify(sortKeysDeep(obj));
+    }
+
+    function sortKeysDeep(value) {
+      if (Array.isArray(value)) {
+        return value.map(sortKeysDeep);
+      } else if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(
+          Object.entries(value)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([k, v]) => [k, sortKeysDeep(v)])
+        );
+      }
+      return value;
+    }
+    // Fetch and compare graph states
+    Promise.all([
+      fetchGraphState(hash1),
+      fetchGraphState(hash2)
+    ])
+    .then(([graph1, graph2]) => {
+      if (!graph1 || !graph2) throw new Error('One or both graphs not found');
+      //
+      if(graph1['parent_hash']){
+        document.getElementById('diff-version').addEventListener('click', function() {
+            window.location.href = `/diff.html?hash1=${graph1['parent_hash']}&hash2=${graph1.hash}`
+        });
+      }else{
+        document.getElementById('diff-version').hidden=true;
+      }
+      // Set states without modifying colors
+      calc1.setState(graph1.state);
+      calc2.setState(graph2.state);
+      
+      // Compare after short delay
+      //setTimeout(() => compareGraphs(graph1.data.state, graph2.data.state), 500);
+      //To maintain same graph version and same state parameters eg. hash1=tpxryuqeyw&hash2=8wsol5b9ns and stringFillOpacity in second graph
+      setTimeout(() => compareGraphs(calc1.getState(), calc2.getState()), 500);
+    })
+    .catch(err => {
+      document.getElementById('diff-summary').innerHTML = `
+        <h3>Error Loading Graphs</h3>
+        <p>${err.message}</p>
+      `;
+      console.error(err);
+    });
+
+    function compareGraphs(state1, state2) {
+    const hash1 = new URLSearchParams(window.location.search).get('hash1');
+    const hash2 = new URLSearchParams(window.location.search).get('hash2');
+    console.log(state1);
+    console.log(state2);
+    //
+    const list1=state1.expressions?.list || []
+    const list2=state2.expressions?.list || []
+    const expr1 = list1.map(x=>sortedStringify(x)).join('\n');
+    const expr2 = list2.map(x=>sortedStringify(x)).join('\n');
+    const diff = Diff.diffLines(expr1, expr2);
+    {
+        const diffItems = document.getElementById('diff-items');
+        diffItems.innerHTML = '';
+
+        for (let i = 0; i < diff.length; i++) {
+          const part = diff[i];
+
+          // Detect a "change": removed followed by added
+          if (part.removed && diff[i + 1]?.added) {
+            const removed = part.value.trim();
+            const added = diff[i + 1].value.trim();
+
+            const item = document.createElement('div');
+            item.className = 'diff-item changed';
+            item.innerHTML = `
+              [≠] Changed:
+              <div style="margin-left: 15px;">
+                <div style="color: #ff4444">- ${removed}</div>
+                <div style="color: #00c853">+ ${added}</div>
+              </div>
+            `;
+            diffItems.appendChild(item);
+
+            i++; // Skip next (already used)
+          }
+
+          // Regular removed
+          else if (part.removed) {
+            const item = document.createElement('div');
+            item.className = 'diff-item removed';
+            item.textContent = `[-] ${part.value.trim()}`;
+            diffItems.appendChild(item);
+          }
+
+          // Regular added
+          else if (part.added) {
+            const item = document.createElement('div');
+            item.className = 'diff-item added';
+            item.textContent = `[+] ${part.value.trim()}`;
+            diffItems.appendChild(item);
+          }
+
+          // unchanged → skip
+        }
+//
+        const diffTable = document.getElementById('diff-items'); // or some new div
+
+        for (let i = 0; i < diff.length; i++) {
+          const part = diff[i];
+
+          // Detect change: removed + added
+          if (part.removed && diff[i + 1]?.added) {
+            const removed = part;
+            const added = diff[i + 1];
+            const wordDiff = Diff.diffWordsWithSpace(removed.value, added.value);
+
+            const left = document.createElement('div');
+            const right = document.createElement('div');
+            left.className = 'diff-col old';
+            right.className = 'diff-col new';
+
+            wordDiff.forEach(d => {
+              const span = document.createElement('span');
+              span.textContent = d.value;
+              if (d.removed) span.className = 'diff-highlight-removed';
+              if (d.added) span.className = 'diff-highlight-added';
+              if (!d.removed && !d.added) span.style.opacity = 0.7;
+
+              if (d.removed) left.appendChild(span);
+              else if (d.added) right.appendChild(span);
+              else {
+                left.appendChild(span.cloneNode(true));
+                right.appendChild(span);
+              }
+            });
+
+            const row = document.createElement('div');
+            row.className = 'diff-row';
+            row.appendChild(left);
+            row.appendChild(right);
+            diffTable.appendChild(row);
+            i++; // skip next (already processed)
+          }
+
+          // Unchanged or single side change
+          else {
+            const row = document.createElement('div');
+            row.className = 'diff-row';
+
+            const left = document.createElement('div');
+            left.className = 'diff-col old';
+            const right = document.createElement('div');
+            right.className = 'diff-col new';
+
+            if (part.removed) left.textContent = part.value;
+            else if (part.added) right.textContent = part.value;
+            // else {
+            //   left.textContent = right.textContent = part.value;
+            //   left.style.opacity = right.style.opacity = 0.6;
+            // }
+
+            row.appendChild(left);
+            row.appendChild(right);
+            diffTable.appendChild(row);
+          }
+        }
+
+
+
+        }
+    }
+
+
+    function getExpressionLabel(exp) {
+      if (exp.latex) return `$${exp.latex}$`;
+      if (exp.title) return `"${exp.title}"`;
+      return `{${Object.keys(exp).filter(k => k !== 'id').join(', ')}}`;
+    }
+
+    function addDiffItem(content, type) {
+      const item = document.createElement('div');
+      item.className = `diff-item ${type}`;
+      item.innerHTML = content;
+      document.getElementById('diff-items').appendChild(item);
+    }
+
+    function deepEqual(a, b) {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+  </script>
+</body>
+</html>
